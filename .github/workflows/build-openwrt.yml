@@ -1,0 +1,146 @@
+name: Build OpenWrt for Wavlink WL-WN575A4
+
+on:
+  workflow_dispatch: # Permite iniciar a compilação manualmente
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Instalar dependências de compilação
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-distutils rsync unzip zlib1g-dev file wget time
+
+      - name: Clonar o OpenWrt (versão estável v23.05.5)
+        run: |
+          git clone https://git.openwrt.org/openwrt/openwrt.git --branch v23.05.5 --depth 1 openwrt
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Aplicar patch de suporte ao Wavlink WL-WN575A4
+        run: |
+          cd openwrt
+          # 1. Criar o arquivo de definição de hardware (DTS)
+          cat << 'EOF' > target/linux/ramips/dts/mt7620a_wavlink_wl-wn575a4.dts
+          #include "mt7620a.dtsi"
+          #include <dt-bindings/gpio/gpio.h>
+          #include <dt-bindings/input/input.h>
+
+          / {
+              compatible = "wavlink,wl-wn575a4", "ralink,mt7620a-soc";
+              model = "Wavlink WL-WN575A4";
+
+              leds {
+                  compatible = "gpio-leds";
+                  wifi-high {
+                      label = "blue:wifi-high";
+                      gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
+                  };
+                  wifi-med {
+                      label = "orange:wifi-med";
+                      gpios = <&gpio0 11 GPIO_ACTIVE_LOW>;
+                  };
+                  wifi-low {
+                      label = "red:wifi-low";
+                      gpios = <&gpio0 8 GPIO_ACTIVE_HIGH>;
+                  };
+              };
+          };
+
+          &spi0 {
+              status = "okay";
+              flash@0 {
+                  compatible = "jedec,spi-nor";
+                  reg = <0>;
+                  spi-max-frequency = <24000000>;
+                  partitions {
+                      compatible = "fixed-partitions";
+                      #address-cells = <1>;
+                      #size-cells = <1>;
+                      partition@0 {
+                          label = "u-boot";
+                          reg = <0x0 0x30000>;
+                          read-only;
+                      };
+                      partition@30000 {
+                          label = "config";
+                          reg = <0x30000 0x10000>;
+                          read-only;
+                      };
+                      factory: partition@40000 {
+                          label = "factory";
+                          reg = <0x40000 0x10000>;
+                          read-only;
+                      };
+                      partition@50000 {
+                          compatible = "denx,uimage";
+                          label = "firmware";
+                          reg = <0x50000 0x7b0000>;
+                      };
+                  };
+              };
+          };
+
+          &state_default {
+              gpio {
+                  groups = "i2c", "uartf";
+                  function = "gpio";
+              };
+          };
+
+          &ethernet {
+              pinctrl-names = "default";
+              pinctrl-0 = <&ephy_pins>;
+              mtd-mac-address = <&factory 0x28>;
+              mediatek,portmap = "llllw";
+          };
+
+          &pcie {
+              status = "okay";
+          };
+
+          &pcie0 {
+              mt76@0,0 {
+                  compatible = "pci0,0";
+                  reg = <0x0000 0 0 0 0>;
+                  mediatek,mtd-eeprom = <&factory 0x8000>;
+                  ieee80211-freq-limit = <5000000 6000000>;
+              };
+          };
+
+          &wmac {
+              pinctrl-names = "default";
+              pinctrl-0 = <&pa_pins>;
+              ralink,mtd-eeprom = <&factory 0x0>;
+          };
+          EOF
+
+          # 2. Registrar o dispositivo no arquivo de imagens do target
+          echo '
+          define Device/wavlink_wl-wn575a4
+            DTS := mt7620a_wavlink_wl-wn575a4
+            IMAGE_SIZE := 7872k
+            DEVICE_VENDOR := Wavlink
+            DEVICE_MODEL := WL-WN575A4
+            DEVICE_PACKAGES := kmod-mt76x2
+            SUPPORTED_DEVICES += wl-wn575a4
+          endef
+          TARGET_DEVICES += wavlink_wl-wn575a4' >> target/linux/ramips/image/mt7620.mk
+
+      - name: Compilar o firmware
+        run: |
+          cd openwrt
+          make image PROFILE=wavlink_wl-wn575a4 -j$(nproc) V=s
+
+      - name: Fazer upload do firmware compilado
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-wavlink-wl-wn575a4
+          path: openwrt/bin/targets/ramips/mt7620/
