@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Wavlink WL-WN575A4 (Aerial X, UK). Placa "575A4_530H4" derivada do WL-WN530HG4.
+// SoC, RAM, flash, partições e EEPROMs confirmados pelo log de arranque.
+// LEDs e botão reset herdados do WN530HG4: por confirmar.
+
+#include "mt7620a.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	compatible = "wavlink,wl-wn575a4", "ralink,mt7620a-soc";
+	model = "Wavlink WL-WN575A4";
+
+	aliases {
+		led-boot = &led_wifi_high;
+		led-failsafe = &led_wifi_high;
+		led-running = &led_wifi_high;
+		led-upgrade = &led_wifi_high;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led_wifi_high: wifi_high {
+			label = "blue:wifi_high";
+			gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
+		};
+
+		wifi_med {
+			label = "orange:wifi_med";
+			gpios = <&gpio0 11 GPIO_ACTIVE_LOW>;
+		};
+
+		wifi_low {
+			label = "red:wifi_low";
+			gpios = <&gpio0 8 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+	};
+};
+
+&spi0 {
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <24000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0 0x30000>;
+				read-only;
+			};
+
+			partition@30000 {
+				label = "config";
+				reg = <0x30000 0x10000>;
+				read-only;
+			};
+
+			factory: partition@40000 {
+				label = "factory";
+				reg = <0x40000 0x10000>;
+				read-only;
+			};
+
+			partition@50000 {
+				compatible = "denx,uimage";
+				label = "firmware";
+				reg = <0x50000 0x7b0000>;
+			};
+		};
+	};
+};
+
+&state_default {
+	gpio {
+		groups = "i2c", "uartf";
+		function = "gpio";
+	};
+};
+
+&ethernet {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ephy_pins>;
+
+	nvmem-cells = <&macaddr_factory_28>;
+	nvmem-cell-names = "mac-address";
+
+	mediatek,portmap = "llllw";
+};
+
+&pcie {
+	status = "okay";
+};
+
+&pcie0 {
+	mt76@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		mediatek,mtd-eeprom = <&factory 0x8000>;
+		ieee80211-freq-limit = <5000000 6000000>;
+	};
+};
+
+&wmac {
+	pinctrl-names = "default", "pa_gpio";
+	pinctrl-0 = <&pa_pins>;
+	pinctrl-1 = <&pa_gpio_pins>;
+
+	ralink,mtd-eeprom = <&factory 0x0>;
+};
+
+&factory {
+	compatible = "nvmem-cells";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	macaddr_factory_28: macaddr@28 {
+		reg = <0x28 0x6>;
+	};
+};
