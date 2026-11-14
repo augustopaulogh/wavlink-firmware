@@ -136,10 +136,15 @@ jobs:
           endef
           TARGET_DEVICES += wavlink_wl-wn575a4' >> target/linux/ramips/image/mt7620.mk
 
-      - name: Compilar o firmware
+      - name: Configurar e Compilar o firmware
         run: |
           cd openwrt
-          make image PROFILE=wavlink_wl-wn575a4 -j$(nproc) V=s
+          echo "CONFIG_TARGET_ramips=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7620=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7620_DEVICE_wavlink_wl-wn575a4=y" >> .config
+          
+          make defconfig
+          make -j$(nproc) V=s
 
       - name: Fazer upload do firmware compilado
         uses: actions/upload-artifact@v4
